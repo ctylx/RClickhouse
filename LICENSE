@@ -338,3 +338,22 @@ proprietary programs.  If your program is a subroutine library, you may
 consider it more useful to permit linking proprietary applications with the
 library.  If this is what you want to do, use the GNU Library General
 Public License instead of this License.
+
+--------------------------------------------------------------------------------
+ADDITIONAL LICENSES FOR THIRD-PARTY SOFTWARE
+--------------------------------------------------------------------------------
+
+This RClickhouse package includes the following vendored third-party software:
+
+1. clickhouse-cpp
+   Copyright 2016-2024 ClickHouse, Inc.
+   Licensed under the Apache License, Version 2.0
+   See src/vendor/clickhouse-cpp/LICENSE
+
+2. Abseil (absl)
+   Copyright 2017-2024 The Abseil Authors
+   Licensed under the Apache License, Version 2.0
+   See src/vendor/abseil/LICENSE
+
+The Apache License 2.0 is compatible with GPL-2.0, allowing this software
+to be distributed under GPL-2.0 while including Apache-licensed components.

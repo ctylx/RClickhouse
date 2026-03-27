@@ -10,6 +10,8 @@
 
 This R package is a DBI interface for the Yandex Clickhouse database. It provides basic dplyr support by auto-generating SQL-commands using dbplyr and is based on the official [C++ Clickhouse Client](https://github.com/ClickHouse/clickhouse-cpp).
 
+This package includes vendored copies of [clickhouse-cpp](https://github.com/ClickHouse/clickhouse-cpp) (Apache 2.0) and [Abseil](https://github.com/abseil/abseil-cpp) (Apache 2.0) libraries. See LICENSE file for details.
+
 To cite this library, please use the BibTeX entry provided in **inst/CITATION**.
 
 
@@ -102,6 +104,27 @@ DBI::dbGetQuery(con, "SELECT multiIf(am='1', 'automatic', 'manual') AS 'transmis
 # Close the connection
 dbDisconnect(con)
 ```
+
+#### DateTime64 Support
+
+RClickhouse supports ClickHouse's `DateTime64` type. Due to R's `POSIXct` limitation, sub-second precision is truncated to whole seconds.
+
+**Query DateTime64:**
+``` r
+# Query DateTime64 values (precision > 0 is truncated to seconds in R)
+DBI::dbGetQuery(con, "SELECT toDateTime64(now(), 3) as dt64")
+```
+
+**Insert DateTime64:**
+``` r
+# Insert DateTime64 via POSIXct (sub-second precision truncated)
+df <- data.frame(ts = as.POSIXct(Sys.time()))
+DBI::dbWriteTable(con, "datetime_table", df)
+```
+
+**Precision behavior:** When inserting with precision > 0 (e.g., milliseconds, microseconds), the fractional seconds are truncated to whole seconds due to R's `POSIXct` representation.
+
+For more details on DateTime64, see [ClickHouse DateTime64 documentation](https://clickhouse.com/docs/en/sql-reference/data-types/datetime64/).
 
 ### Config File
 You may use a config file that is looked up for automatic initialization of the dbConnect parameters.

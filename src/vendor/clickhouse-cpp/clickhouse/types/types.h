@@ -1,14 +1,19 @@
 #pragma once
 
-#include <cstdint>
-#include <BigInt.hpp>
+#include "absl/numeric/int128.h"
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
+#include <stdexcept>
 
 namespace clickhouse {
+
+using Int128 = absl::int128;
+using UInt128 = absl::uint128;
+using Int64 = int64_t;
 
 using TypeRef = std::shared_ptr<class Type>;
 
@@ -39,10 +44,21 @@ public:
         IPv4,
         IPv6,
         Int128,
+        UInt128,
         Decimal,
         Decimal32,
         Decimal64,
         Decimal128,
+        LowCardinality,
+        DateTime64,
+        Date32,
+        Map,
+        Point,
+        Ring,
+        Polygon,
+        MultiPolygon,
+        Time,
+        Time64,
     };
 
     using EnumItem = std::pair<std::string /* name */, int16_t /* value */>;
@@ -51,6 +67,16 @@ protected:
     Type(const Code code);
 
 public:
+    template <typename Derived>
+    auto* As() {
+        return static_cast<Derived*>(this);
+    }
+
+    template <typename Derived>
+    const auto* As() const {
+        return static_cast<const Derived*>(this);
+    }
+
     /// Type's code.
     Code GetCode() const { return code_; }
 
@@ -58,14 +84,28 @@ public:
     std::string GetName() const;
 
     /// Is given type same as current one.
-    bool IsEqual(const TypeRef& other) const { return this->GetName() == other->GetName(); }
+    bool IsEqual(const Type& other) const {
+        // Types are equal only if both code_ and type_unique_id_ are equal.
+        return this == &other
+                // GetTypeUniqueId() is relatively heavy, so avoid calling it when comparing obviously different types.
+                || (this->GetCode() == other.GetCode() && this->GetTypeUniqueId() == other.GetTypeUniqueId());
+    }
+
+    bool IsEqual(const TypeRef& other) const { return IsEqual(*other); }
+
+    /// Simple name, doesn't depend on parameters and\or nested types, caller MUST NOT free returned value.
+    static const char* TypeName(Code);
 
 public:
     static TypeRef CreateArray(TypeRef item_type);
 
     static TypeRef CreateDate();
 
-    static TypeRef CreateDateTime();
+    static TypeRef CreateDate32();
+
+    static TypeRef CreateDateTime(std::string timezone = std::string());
+
+    static TypeRef CreateDateTime64(size_t precision, std::string timezone = std::string());
 
     static TypeRef CreateDecimal(size_t precision, size_t scale);
 
@@ -92,9 +132,40 @@ public:
 
     static TypeRef CreateUUID();
 
+    static TypeRef CreateLowCardinality(TypeRef item_type);
+
+    static TypeRef CreateMap(TypeRef key_type, TypeRef value_type);
+
+    static TypeRef CreatePoint();
+
+    static TypeRef CreateRing();
+
+    static TypeRef CreatePolygon();
+
+    static TypeRef CreateMultiPolygon();
+
+    static TypeRef CreateTime();
+
+    static TypeRef CreateTime64(size_t precision);
+
 private:
+    uint64_t GetTypeUniqueId() const;
+
     const Code code_;
+    mutable std::atomic<uint64_t> type_unique_id_;
 };
+
+inline bool operator==(const Type & left, const Type & right) {
+    if (&left == &right)
+        return true;
+    if (typeid(left) == typeid(right))
+        return left.IsEqual(right);
+    return false;
+}
+
+inline bool operator==(const TypeRef & left, const TypeRef & right) {
+    return *left == *right;
+}
 
 class ArrayType : public Type {
 public:
@@ -114,11 +185,59 @@ public:
     DecimalType(size_t precision, size_t scale);
 
     std::string GetName() const;
+    friend class EnumType;
+    friend class DateTimeType;
 
     inline size_t GetScale() const { return scale_; }
+    inline size_t GetPrecision() const { return precision_; }
 
 private:
     const size_t precision_, scale_;
+};
+
+namespace details
+{
+class TypeWithTimeZoneMixin
+{
+public:
+    TypeWithTimeZoneMixin(std::string timezone);
+
+    /// Timezone associated with a data column.
+    const std::string & Timezone() const;
+
+private:
+    std::string timezone_;
+};
+}
+
+class Time64Type : public Type {
+public:
+    explicit Time64Type(size_t precision);
+
+    std::string GetName() const;
+
+    inline size_t GetPrecision() const { return precision_; }
+
+private:
+    size_t precision_;
+};
+
+class DateTimeType : public Type, public details::TypeWithTimeZoneMixin {
+public:
+    explicit DateTimeType(std::string timezone);
+
+    std::string GetName() const;
+};
+
+class DateTime64Type: public Type, public details::TypeWithTimeZoneMixin {
+public:
+    explicit DateTime64Type(size_t precision, std::string timezone_);
+
+    std::string GetName() const;
+
+    inline size_t GetPrecision() const { return precision_; }
+private:
+    size_t precision_;
 };
 
 class EnumType : public Type {
@@ -128,13 +247,13 @@ public:
     std::string GetName() const;
 
     /// Methods to work with enum types.
-    const std::string& GetEnumName(int16_t value) const;
+    std::string_view GetEnumName(int16_t value) const;
     int16_t GetEnumValue(const std::string& name) const;
     bool HasEnumName(const std::string& name) const;
     bool HasEnumValue(int16_t value) const;
 
 private:
-    using ValueToNameType     = std::map<int16_t, std::string>;
+    using ValueToNameType     = std::map<int16_t, std::string_view>;
     using NameToValueType     = std::map<std::string, int16_t>;
     using ValueToNameIterator = ValueToNameType::const_iterator;
 
@@ -151,6 +270,8 @@ public:
     explicit FixedStringType(size_t n);
 
     std::string GetName() const { return std::string("FixedString(") + std::to_string(size_) + ")"; }
+
+    inline size_t GetSize() const { return size_; }
 
 private:
     size_t size_;
@@ -182,6 +303,37 @@ private:
     std::vector<TypeRef> item_types_;
 };
 
+class LowCardinalityType : public Type {
+public:
+    explicit LowCardinalityType(TypeRef nested_type);
+    ~LowCardinalityType();
+
+    std::string GetName() const { return std::string("LowCardinality(") + nested_type_->GetName() + ")"; }
+
+    /// Type of nested nullable element.
+    TypeRef GetNestedType() const { return nested_type_; }
+
+private:
+    TypeRef nested_type_;
+};
+
+class MapType : public Type {
+public:
+    explicit MapType(TypeRef key_type, TypeRef value_type);
+
+    std::string GetName() const;
+
+    /// Type of keys.
+    TypeRef GetKeyType() const { return key_type_; }
+
+    /// Type of values.
+    TypeRef GetValueType() const { return value_type_; }
+
+private:
+    TypeRef key_type_;
+    TypeRef value_type_;
+};
+
 template <>
 inline TypeRef Type::CreateSimple<int8_t>() {
     return TypeRef(new Type(Int8));
@@ -203,8 +355,13 @@ inline TypeRef Type::CreateSimple<int64_t>() {
 }
 
 template <>
-inline TypeRef Type::CreateSimple<BigInt>() {
+inline TypeRef Type::CreateSimple<Int128>() {
     return TypeRef(new Type(Int128));
+}
+
+template <>
+inline TypeRef Type::CreateSimple<UInt128>() {
+    return TypeRef(new Type(UInt128));
 }
 
 template <>
