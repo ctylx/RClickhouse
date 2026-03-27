@@ -1,6 +1,3 @@
 [submodule "clickhouse-cpp"]
 	path = src/vendor/clickhouse-cpp
 	url = https://github.com/ClickHouse/clickhouse-cpp
-[submodule "abseil"]
-	path = src/vendor/abseil
-	url = https://github.com/abseil/abseil-cpp
