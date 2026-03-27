@@ -366,6 +366,13 @@ std::shared_ptr<CT> vecToEnum(SEXP v, TypeRef type, std::shared_ptr<ColumnUInt8>
 
 ColumnRef vecToColumn(TypeRef t, SEXP v, std::shared_ptr<ColumnUInt8> nullCol = nullptr) {
   using TC = Type::Code;
+  
+  // Handle LowCardinality by unwrapping to nested type
+  if (t->GetCode() == TC::LowCardinality) {
+    auto nested_t = std::static_pointer_cast<const LowCardinalityType>(t)->GetNestedType();
+    return vecToColumn(nested_t, v, nullCol);
+  }
+  
   switch(t->GetCode()) {
     case TC::Int8:
       return vecToScalar<ColumnInt8, int8_t>(v, nullCol);
@@ -395,8 +402,18 @@ ColumnRef vecToColumn(TypeRef t, SEXP v, std::shared_ptr<ColumnUInt8> nullCol = 
       return vecToScalar<ColumnDateTime, const std::time_t>(v, nullCol);
     case TC::Date:
       return vecToScalar<ColumnDate, const std::time_t>(v, nullCol);
-    case TC::DateTime64:
-      return vecToScalar<ColumnDateTime64, const std::time_t>(v, nullCol);
+    case TC::DateTime64: {
+      auto dt64_t = std::static_pointer_cast<const DateTime64Type>(t);
+      size_t precision = dt64_t->GetPrecision();
+      auto col = std::make_shared<ColumnDateTime64>(precision);
+      if (TYPEOF(v) == REALSXP && Rf_inherits(v, "POSIXct")) {
+        toColumn<ColumnDateTime64, DatetimeVector, const std::time_t>(v, col, nullCol,
+            [precision](DatetimeVector::stored_type x) {
+              return static_cast<int64_t>(x * std::pow(10.0, precision));
+            });
+      }
+      return col;
+    }
     case TC::Nullable: {
       // downcast to NullableType to access GetItemType member
       std::shared_ptr<class NullableType> nullable_t = std::static_pointer_cast<NullableType>(t);

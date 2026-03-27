@@ -214,6 +214,30 @@ class ScalarConverter : public Converter {
   }
 };
 
+class LowCardinalityStringConverter : public Converter {
+  void processBlocks(Result &r, Result::AccFunc colAcc, Rcpp::List &target,
+      size_t start, size_t len, Result::AccFunc) {
+    r.convertTypedColumn<ch::ColumnLowCardinality, Rcpp::StringVector>(colAcc, target, start, len,
+        [](const Result::ColBlock &, std::shared_ptr<const ch::ColumnLowCardinality> in,
+          Rcpp::StringVector &out, size_t offset, size_t start, size_t end) {
+          for(size_t j = start; j < end; j++) {
+            auto item = in->GetItem(j);
+            out[offset+j-start] = std::string(item.data);
+          }
+        });
+  }
+  void processCol(ch::ColumnRef col, Rcpp::List &target, size_t targetIdx,
+      NullCol) {
+    auto typedCol = col->As<ch::ColumnLowCardinality>();
+    Rcpp::StringVector v(col->Size());
+    for(size_t j = 0; j < col->Size(); j++) {
+      auto item = typedCol->GetItem(j);
+      v[j] = std::string(item.data);
+    }
+    target[targetIdx] = v;
+  }
+};
+
 class NullableConverter : public Converter {
   using CT = ch::ColumnNullable;
   std::unique_ptr<Converter> elemConverter;
@@ -304,6 +328,10 @@ public:
 
 std::unique_ptr<Converter> Result::buildConverter(std::string name, ch::TypeRef type) const {
   using TC = ch::Type::Code;
+
+  if (type->GetCode() == TC::LowCardinality) {
+    return std::unique_ptr<LowCardinalityStringConverter>(new LowCardinalityStringConverter());
+  }
 
   switch(type->GetCode()) {
     case TC::Int8:
@@ -435,10 +463,8 @@ Rcpp::DataFrame Result::fetchFrame(ssize_t n) {
   Rcpp::DataFrame df;
 
   for(size_t i = 0; i < static_cast<size_t>(colNames.size()); i++) {
-    //TODO: it would be sufficient to build the Converter just once
     std::unique_ptr<Converter> proc = buildConverter(std::string(colNames[i]), colTypes[i]);
     proc->processBlocks(*this, [&i](const ColBlock &cb){return cb.columns[i];}, df, fetchedRows, nRows, nullptr);
-    //TODO: release blocks once they have been fetched
   }
 
   df.attr("class") = "data.frame";
