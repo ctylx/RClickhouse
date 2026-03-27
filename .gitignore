@@ -16,4 +16,3 @@ RClickhouse_*.tar.gz
 # mac specific files
 .DS_Store
 .vscode
-vendor/
