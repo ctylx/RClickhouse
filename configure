@@ -1,0 +1,97 @@
+#!/bin/bash
+# Configure script for building vendored clickhouse-cpp and absl as static libraries
+# This script is part of the RClickhouse package
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VENDOR_DIR="${SCRIPT_DIR}/src/vendor"
+CLICKHOUSE_CPP_DIR="${VENDOR_DIR}/clickhouse-cpp"
+BUILD_DIR="${CLICKHOUSE_CPP_DIR}/build"
+SRC_DIR="${SCRIPT_DIR}/src"
+
+echo "=== RClickhouse Configure Script ==="
+echo "CMake build for clickhouse-cpp v2.6.1"
+echo ""
+
+# Check CMake version
+echo "[1/5] Checking CMake version..."
+if ! command -v cmake &> /dev/null; then
+    echo "ERROR: cmake not found in PATH"
+    exit 1
+fi
+
+CMAKE_VERSION=$(cmake --version | head -n1 | sed -n 's/cmake version //p')
+CMAKE_MAJOR=$(echo "$CMAKE_VERSION" | cut -d. -f1)
+CMAKE_MINOR=$(echo "$CMAKE_VERSION" | cut -d. -f2)
+
+echo "Found CMake version: ${CMAKE_VERSION}"
+
+# Check CMake >= 3.12
+if [ "$CMAKE_MAJOR" -lt 3 ] || { [ "$CMAKE_MAJOR" -eq 3 ] && [ "$CMAKE_MINOR" -lt 12 ]; }; then
+    echo "ERROR: CMake version must be >= 3.12"
+    exit 1
+fi
+echo "CMake version check passed (>= 3.12)"
+echo ""
+
+# Create build directory
+echo "[2/5] Creating build directory..."
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
+echo "Build directory: ${BUILD_DIR}"
+echo ""
+
+# Configure with CMake
+echo "[3/5] Configuring CMake..."
+cd "$BUILD_DIR"
+
+cmake "$CLICKHOUSE_CPP_DIR" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DBUILD_TESTS=OFF \
+    -DBUILD_BENCHMARK=OFF \
+    -DWITH_OPENSSL=OFF \
+    -DWITH_SYSTEM_ABSEIL=OFF \
+    -DWITH_SYSTEM_LZ4=OFF \
+    -DWITH_SYSTEM_CITYHASH=OFF \
+    -DWITH_SYSTEM_ZSTD=OFF \
+    -DDEBUG_DEPENDENCIES=OFF
+
+if [ $? -ne 0 ]; then
+    echo "ERROR: CMake configuration failed"
+    exit 1
+fi
+echo "CMake configuration completed"
+echo ""
+
+# Build
+echo "[4/5] Building clickhouse-cpp..."
+cmake --build . --parallel
+
+if [ $? -ne 0 ]; then
+    echo "ERROR: Build failed"
+    exit 1
+fi
+echo "Build completed"
+echo ""
+
+# Find and copy .a files
+echo "[5/5] Copying static libraries to src/..."
+
+# Ensure src directory exists
+mkdir -p "$SRC_DIR"
+
+# Find all .a files in the build directory
+find "$BUILD_DIR" -name '*.a' -type f | while read -r lib_file; do
+    lib_name=$(basename "$lib_file")
+    echo "  Copying: $lib_name"
+    cp "$lib_file" "$SRC_DIR/"
+done
+
+echo "Libraries copied to: ${SRC_DIR}/"
+echo ""
+
+echo "=== Configure completed successfully ==="
+echo "Static libraries are ready in src/"
+exit 0

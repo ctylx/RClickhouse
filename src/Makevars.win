@@ -3,7 +3,23 @@ SYS_FLAGS = -D_WIN32_WINNT=0x0600
 ## pragma comment is ignored by g++
 SYS_LIBS = -lws2_32
 
-include Makevars.common
+## Windows-specific include paths for vendored libraries
+PKG_CPPFLAGS = $(SYS_FLAGS) \
+  -I. \
+  -I../inst/include \
+  -I./vendor/clickhouse-cpp \
+  -I./vendor/clickhouse-cpp/contrib \
+  -I./vendor/abseil
+
+## C++17 for clickhouse-cpp v2.6.1
+CXX_STD = CXX17
+
+## Link to CMake-built static libraries on Windows
+PKG_LIBS = \
+  ./vendor/clickhouse-cpp/build/libclickhouse-cpp.a \
+  ./vendor/abseil/build/libabsl.a \
+  -lws2_32 \
+  -lpthread
 
 ## avoid conflict with macro redefinitions
 PKG_CPPFLAGS += -DSTRICT_R_HEADERS
