@@ -336,7 +336,7 @@ std::shared_ptr<CT> vecToEnum(SEXP v, TypeRef type, std::shared_ptr<ColumnUInt8>
   // build a mapping from R factor levels to the enum values in the column type
   // the R levels are contiguous (starting at 1), so a vector works as a "map"
   std::vector<VT> levelMap(levels.size());
-  for (size_t i = 0; i < levels.size(); i++) {
+  for (R_xlen_t i = 0; i < levels.size(); i++) {
     std::string name(levels[i]);
     if (!et->HasEnumName(name)) {
       stop("entry '" + name + "' does not exist in enum type " + et->GetName());
