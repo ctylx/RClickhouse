@@ -5,6 +5,7 @@ packrat/lib*/
 .RData
 .Rhistory
 *.o
+*.a
 *.so
 *_RcppExports.h
 CMakeFiles/
