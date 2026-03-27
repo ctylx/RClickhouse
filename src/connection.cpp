@@ -5,6 +5,7 @@
 #include <Rcpp.h>
 #include <clickhouse/client.h>
 #include "result.h"
+#include "absl/numeric/int128.h"
 #include <sstream>
 #include <cstdint>
 
@@ -219,7 +220,34 @@ std::shared_ptr<ColumnDate> vecToScalar<ColumnDate, const std::time_t>(SEXP v,
   return col;
 }
 
-UInt128 parseUUID(const std::string &str) {
+template<>
+std::shared_ptr<ColumnDateTime64> vecToScalar<ColumnDateTime64, const std::time_t>(SEXP v,
+    std::shared_ptr<ColumnUInt8> nullCol) {
+  auto col = std::make_shared<ColumnDateTime64>(3);  // default precision 3 (milliseconds)
+  switch(TYPEOF(v)) {
+    case REALSXP: {
+      if(Rf_inherits(v, "POSIXct")) {
+        toColumn<ColumnDateTime64, DatetimeVector, const std::time_t>(v, col, nullCol,
+            [](DatetimeVector::stored_type x) {
+              // Convert seconds to milliseconds (precision 3)
+              return static_cast<int64_t>(x * 1000);
+            });
+      } else {
+        stop("cannot write non-POSIXct real vector to DateTime64 column");
+      }
+      break;
+    }
+    case NILSXP:
+      // treated as an empty column
+      break;
+    default:
+      stop("cannot write R type "+std::to_string(TYPEOF(v))+
+          " to column of type DateTime64");
+  }
+  return col;
+}
+
+std::pair<uint64_t, uint64_t> parseUUID(const std::string &str) {
   unsigned long long p1, p2, p3, p4, p5;
   int ret = std::sscanf(str.c_str(), "%8llx-%4llx-%4llx-%4llx-%012llx", &p1, &p2, &p3, &p4, &p5);
   if(ret != 5 || str.length() > 36) {
@@ -228,11 +256,11 @@ UInt128 parseUUID(const std::string &str) {
 
   uint64_t hi = (p1<<32) | (p2<<16) | p3,
            lo = (p4<<48) | p5;
-  return UInt128(hi, lo);
+  return std::make_pair(hi, lo);
 }
 
 template<>
-std::shared_ptr<ColumnUUID> vecToScalar<ColumnUUID, UInt128>(SEXP v,
+std::shared_ptr<ColumnUUID> vecToScalar<ColumnUUID, std::pair<uint64_t, uint64_t>>(SEXP v,
     std::shared_ptr<ColumnUInt8> nullCol) {
   auto col = std::make_shared<ColumnUUID>();
   switch(TYPEOF(v)) {
@@ -242,7 +270,7 @@ std::shared_ptr<ColumnUUID> vecToScalar<ColumnUUID, UInt128>(SEXP v,
       if(nullCol) {
         for(auto e : sv) {
           bool isNA = StringVector::is_na(e);
-          col->Append(isNA ? ch::UInt128(0, 0) : parseUUID(std::string(e)));
+          col->Append(isNA ? std::make_pair(uint64_t(0), uint64_t(0)) : parseUUID(std::string(e)));
           nullCol->Append(isNA);
         }
       } else {
@@ -356,7 +384,7 @@ ColumnRef vecToColumn(TypeRef t, SEXP v, std::shared_ptr<ColumnUInt8> nullCol = 
     case TC::UInt64:
       return vecToScalar<ColumnUInt64, uint64_t>(v, nullCol);
     case TC::UUID:
-      return vecToScalar<ColumnUUID, UInt128>(v, nullCol);
+      return vecToScalar<ColumnUUID, std::pair<uint64_t, uint64_t>>(v, nullCol);
     case TC::Float32:
       return vecToScalar<ColumnFloat32, float>(v, nullCol);
     case TC::Float64:
@@ -367,6 +395,8 @@ ColumnRef vecToColumn(TypeRef t, SEXP v, std::shared_ptr<ColumnUInt8> nullCol = 
       return vecToScalar<ColumnDateTime, const std::time_t>(v, nullCol);
     case TC::Date:
       return vecToScalar<ColumnDate, const std::time_t>(v, nullCol);
+    case TC::DateTime64:
+      return vecToScalar<ColumnDateTime64, const std::time_t>(v, nullCol);
     case TC::Nullable: {
       // downcast to NullableType to access GetItemType member
       std::shared_ptr<class NullableType> nullable_t = std::static_pointer_cast<NullableType>(t);

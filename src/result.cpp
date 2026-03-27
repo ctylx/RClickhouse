@@ -1,5 +1,7 @@
 #include <stdexcept>
+#include <cmath>
 #include "result.h"
+#include "absl/numeric/int128.h"
 
 
 // helper function which emits an R warning without causing a longjmp
@@ -105,16 +107,37 @@ void convertEntries<ch::ColumnDate, Rcpp::DateVector>(std::shared_ptr<const ch::
   }
 }
 
-std::string formatUUID(const ch::UInt128 &v) {
+// DateTime64 requires specialization: ClickHouse stores nanoseconds/precision as Int64,
+// R POSIXct stores seconds as double, so we divide by 10^precision
+template<>
+void convertEntries<ch::ColumnDateTime64, Rcpp::DatetimeVector>(std::shared_ptr<const ch::ColumnDateTime64> in,
+    NullCol nullCol, Rcpp::DatetimeVector &out, size_t offset, size_t start, size_t end) {
+  for(size_t j = start; j < end; j++) {
+    if(nullCol && nullCol->IsNull(j)) {
+      out[offset+j-start] = Rcpp::DatetimeVector::get_na();
+    } else {
+      // Get precision from column (0-9)
+      auto precision = in->GetPrecision();
+      // Convert Int64 timestamp to seconds (divide by 10^precision)
+      int64_t raw = in->At(j);
+      double seconds = raw / std::pow(10.0, precision);
+      out[offset+j-start] = seconds;
+    }
+  }
+}
+
+std::string formatUUID(const std::pair<uint64_t, uint64_t> &v) {
   const size_t bufsize = 128/4 + 4 + 1;  // 128 bit in hexadecimal + 4 dashes + null terminator
   char buf[bufsize];
 
+  uint64_t hi = v.first;
+  uint64_t lo = v.second;
   std::snprintf(&buf[0], bufsize, "%08llx-%04llx-%04llx-%04llx-%012llx",
-      static_cast<unsigned long long>(v.first>>32),
-      (v.first>>16)&0xFFFFllu,
-      v.first&0xFFFFllu,
-      static_cast<unsigned long long>(v.second>>48),
-      v.second&0xFFFFFFFFFFFFllu);
+      static_cast<unsigned long long>(hi>>32),
+      (hi>>16)&0xFFFFllu,
+      hi&0xFFFFllu,
+      static_cast<unsigned long long>(lo>>48),
+      lo&0xFFFFFFFFFFFFllu);
   return std::string(buf);
 }
 
@@ -126,6 +149,30 @@ void convertEntries<ch::ColumnUUID, Rcpp::StringVector>(std::shared_ptr<const ch
       out[offset+j-start] = Rcpp::StringVector::get_na();
     } else {
       out[offset+j-start] = formatUUID(in->At(j));
+    }
+  }
+}
+
+template<>
+void convertEntries<ch::ColumnString, Rcpp::StringVector>(std::shared_ptr<const ch::ColumnString> in,
+    NullCol nullCol, Rcpp::StringVector &out, size_t offset, size_t start, size_t end) {
+  for(size_t j = start; j < end; j++) {
+    if(nullCol && nullCol->IsNull(j)) {
+      out[offset+j-start] = Rcpp::StringVector::get_na();
+    } else {
+      out[offset+j-start] = std::string(in->At(j));
+    }
+  }
+}
+
+template<>
+void convertEntries<ch::ColumnFixedString, Rcpp::StringVector>(std::shared_ptr<const ch::ColumnFixedString> in,
+    NullCol nullCol, Rcpp::StringVector &out, size_t offset, size_t start, size_t end) {
+  for(size_t j = start; j < end; j++) {
+    if(nullCol && nullCol->IsNull(j)) {
+      out[offset+j-start] = Rcpp::StringVector::get_na();
+    } else {
+      out[offset+j-start] = std::string(in->At(j));
     }
   }
 }
@@ -290,6 +337,8 @@ std::unique_ptr<Converter> Result::buildConverter(std::string name, ch::TypeRef 
       return std::unique_ptr<ScalarConverter<ch::ColumnFixedString, Rcpp::StringVector>>(new ScalarConverter<ch::ColumnFixedString, Rcpp::StringVector>);
     case TC::DateTime:
       return std::unique_ptr<ScalarConverter<ch::ColumnDateTime, Rcpp::DatetimeVector>>(new ScalarConverter<ch::ColumnDateTime, Rcpp::DatetimeVector>);
+    case TC::DateTime64:
+      return std::unique_ptr<ScalarConverter<ch::ColumnDateTime64, Rcpp::DatetimeVector>>(new ScalarConverter<ch::ColumnDateTime64, Rcpp::DatetimeVector>);
     case TC::Date:
       return std::unique_ptr<ScalarConverter<ch::ColumnDate, Rcpp::DateVector>>(new ScalarConverter<ch::ColumnDate, Rcpp::DateVector>);
     case TC::Nullable:
