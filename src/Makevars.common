@@ -1,4 +1,4 @@
-PKG_CPPFLAGS = $(SYS_FLAGS) -I. -I../inst/include -I./vendor/clickhouse-cpp -I./vendor/clickhouse-cpp/contrib -I./vendor/abseil
+PKG_CPPFLAGS = $(SYS_FLAGS) -I. -I../inst/include -I./vendor/clickhouse-cpp -I./vendor/clickhouse-cpp/contrib/absl
 
 PKG_LIBS = \
   ./libclickhouse-cpp-lib.a \

@@ -8,8 +8,7 @@ PKG_CPPFLAGS = $(SYS_FLAGS) \
   -I. \
   -I../inst/include \
   -I./vendor/clickhouse-cpp \
-  -I./vendor/clickhouse-cpp/contrib \
-  -I./vendor/abseil
+  -I./vendor/clickhouse-cpp/contrib/absl
 
 ## C++17 for clickhouse-cpp v2.6.1
 CXX_STD = CXX17
@@ -17,7 +16,6 @@ CXX_STD = CXX17
 ## Link to CMake-built static libraries on Windows
 PKG_LIBS = \
   ./vendor/clickhouse-cpp/build/libclickhouse-cpp.a \
-  ./vendor/abseil/build/libabsl.a \
   -lws2_32 \
   -lpthread
 
