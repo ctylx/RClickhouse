@@ -108,6 +108,6 @@ setMethod("dbColumnInfo", "ClickhouseResult", definition = function(res, ...) {
   data.frame(
     name = colnames(df),
     field.type = resultTypes(res@ptr),
-    data.type = sapply(df, class)
+    data.type = vapply(df, function(x) class(x)[1L], character(1L))
   )
 })
