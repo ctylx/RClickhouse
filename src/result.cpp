@@ -326,8 +326,18 @@ public:
   }
 };
 
-std::unique_ptr<Converter> Result::buildConverter(std::string name, ch::TypeRef type) const {
+std::unique_ptr<Converter> Result::buildConverter(std::string name, ch::TypeRef type, size_t colIdx) const {
   using TC = ch::Type::Code;
+
+  auto isBoolType = [this, colIdx]() -> bool {
+    if (colIdx >= colOriginalTypes.size()) return false;
+    const auto& t = colOriginalTypes[colIdx];
+    if (t == "Bool") return true;
+    if (t.size() > 9 && t.substr(0, 9) == "Nullable(" && t.back() == ')') {
+      return t.substr(9, t.size() - 10) == "Bool";
+    }
+    return false;
+  };
 
   if (type->GetCode() == TC::LowCardinality) {
     return std::unique_ptr<LowCardinalityStringConverter>(new LowCardinalityStringConverter());
@@ -343,6 +353,8 @@ std::unique_ptr<Converter> Result::buildConverter(std::string name, ch::TypeRef 
     case TC::Int64:
       return std::unique_ptr<ScalarConverter<ch::ColumnInt64, Rcpp::StringVector>>(new ScalarConverter<ch::ColumnInt64, Rcpp::StringVector>);
     case TC::UInt8:
+      if (isBoolType())
+        return std::unique_ptr<ScalarConverter<ch::ColumnUInt8, Rcpp::LogicalVector>>(new ScalarConverter<ch::ColumnUInt8, Rcpp::LogicalVector>);
       return std::unique_ptr<ScalarConverter<ch::ColumnUInt8, Rcpp::IntegerVector>>(new ScalarConverter<ch::ColumnUInt8, Rcpp::IntegerVector>);
     case TC::UInt16:
       return std::unique_ptr<ScalarConverter<ch::ColumnUInt16, Rcpp::IntegerVector>>(new ScalarConverter<ch::ColumnUInt16, Rcpp::IntegerVector>);
@@ -374,14 +386,14 @@ std::unique_ptr<Converter> Result::buildConverter(std::string name, ch::TypeRef 
         // downcast to NullableType to access GetNestedType member
         std::shared_ptr<class ch::NullableType> nullable_t = std::static_pointer_cast<ch::NullableType>(type);
 
-        return std::unique_ptr<NullableConverter>(new NullableConverter(buildConverter(name, nullable_t->GetNestedType())));
+        return std::unique_ptr<NullableConverter>(new NullableConverter(buildConverter(name, nullable_t->GetNestedType(), colIdx)));
       }
     case TC::Array:
       {
         // downcast to ArrayType to access GetItemType member
         std::shared_ptr<class ch::ArrayType> array_t = std::static_pointer_cast<ch::ArrayType>(type);
 
-        return std::unique_ptr<ArrayConverter>(new ArrayConverter(buildConverter(name, array_t->GetItemType())));
+        return std::unique_ptr<ArrayConverter>(new ArrayConverter(buildConverter(name, array_t->GetItemType(), colIdx)));
       }
     case TC::Enum8:
       {
@@ -443,6 +455,14 @@ Result::TypeList Result::getColTypes() const {
   return colTypes;
 }
 
+void Result::setOriginalTypes(const std::vector<std::string>& types) {
+  colOriginalTypes = types;
+}
+
+std::vector<std::string> Result::getColOriginalTypes() const {
+  return colOriginalTypes;
+}
+
 void Result::addBlock(const ch::Block &block) {
   if(static_cast<size_t>(colNames.size()) < block.GetColumnCount()) {
     setColInfo(block);
@@ -463,7 +483,7 @@ Rcpp::DataFrame Result::fetchFrame(ssize_t n) {
   Rcpp::DataFrame df;
 
   for(size_t i = 0; i < static_cast<size_t>(colNames.size()); i++) {
-    std::unique_ptr<Converter> proc = buildConverter(std::string(colNames[i]), colTypes[i]);
+    std::unique_ptr<Converter> proc = buildConverter(std::string(colNames[i]), colTypes[i], i);
     proc->processBlocks(*this, [&i](const ColBlock &cb){return cb.columns[i];}, df, fetchedRows, nRows, nullptr);
   }
 

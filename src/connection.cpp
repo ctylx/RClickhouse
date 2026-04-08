@@ -44,6 +44,9 @@ std::string getStatement(XPtr<Result> res) {
 
 // [[Rcpp::export]]
 std::vector<std::string> resultTypes(XPtr<Result> res) {
+  auto origTypes = res->getColOriginalTypes();
+  if (!origTypes.empty()) return origTypes;
+
   auto colTypes = res->getColTypes();
   std::vector<std::string> r(colTypes.size());
   std::transform(colTypes.begin(), colTypes.end(), r.begin(), [](TypeRef r) { return r->GetName(); });
@@ -80,7 +83,21 @@ void disconnect(XPtr<Client> conn) {
 // [[Rcpp::export]]
 XPtr<Result> select(XPtr<Client> conn, String query) {
   Result *r = new Result(query);
-  //TODO: async?
+
+  try {
+    std::vector<std::string> origTypes;
+    conn->Select("DESCRIBE (" + std::string(query) + ")", [&origTypes] (const Block& block) {
+      if (block.GetColumnCount() >= 2) {
+        auto typeCol = block[1]->As<ColumnString>();
+        for (size_t i = 0; i < typeCol->Size(); i++) {
+          origTypes.push_back(std::string(typeCol->At(i)));
+        }
+      }
+      return true;
+    });
+    r->setOriginalTypes(origTypes);
+  } catch (...) {}
+
   conn->SelectCancelable(query, [&r] (const Block& block) {
     r->addBlock(block);
     return R_ToplevelExec(checkInterruptFn, NULL) != FALSE;

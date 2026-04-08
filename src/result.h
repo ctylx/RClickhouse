@@ -31,6 +31,7 @@ class Result {
   Rcpp::StringVector colNames;
   TypeList colTypes;
   Rcpp::StringVector colTypesString;
+  std::vector<std::string> colOriginalTypes;
   std::vector<ColBlock> columnBlocks;
 
   void setColInfo(const ch::Block &block);
@@ -59,7 +60,13 @@ class Result {
   void addBlock(const ch::Block &block);
 
   // build a converter tree for the given Clickhouse column type
-  std::unique_ptr<Converter> buildConverter(std::string name, ch::TypeRef type) const;
+  std::unique_ptr<Converter> buildConverter(std::string name, ch::TypeRef type, size_t colIdx) const;
+
+  // store original type names (e.g. "Bool" instead of "UInt8")
+  void setOriginalTypes(const std::vector<std::string>& types);
+
+  // get original type names
+  std::vector<std::string> getColOriginalTypes() const;
 
   // build a data frame containing n entries from the result set, starting at
   // fetchedRows
