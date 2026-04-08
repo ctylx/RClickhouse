@@ -112,15 +112,22 @@ void convertEntries<ch::ColumnDate, Rcpp::DateVector>(std::shared_ptr<const ch::
 template<>
 void convertEntries<ch::ColumnDateTime64, Rcpp::DatetimeVector>(std::shared_ptr<const ch::ColumnDateTime64> in,
     NullCol nullCol, Rcpp::DatetimeVector &out, size_t offset, size_t start, size_t end) {
+  auto precision = in->GetPrecision();
   for(size_t j = start; j < end; j++) {
     if(nullCol && nullCol->IsNull(j)) {
       out[offset+j-start] = Rcpp::DatetimeVector::get_na();
     } else {
-      // Get precision from column (0-9)
-      auto precision = in->GetPrecision();
-      // Convert Int64 timestamp to seconds (divide by 10^precision)
       int64_t raw = in->At(j);
-      double seconds = raw / std::pow(10.0, precision);
+      double seconds;
+      if (precision <= 6) {
+        seconds = raw / std::pow(10.0, precision);
+      } else {
+        int64_t scale = 1;
+        for (size_t i = 0; i < precision; i++) scale *= 10;
+        int64_t sec_part = raw / scale;
+        int64_t frac_part = raw % scale;
+        seconds = static_cast<double>(sec_part) + static_cast<double>(frac_part) / static_cast<double>(scale);
+      }
       out[offset+j-start] = seconds;
     }
   }

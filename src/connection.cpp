@@ -12,6 +12,19 @@
 using namespace Rcpp;
 using namespace clickhouse;
 
+static int64_t posixctToTicks(double seconds, size_t precision) {
+  if (precision <= 6) {
+    return static_cast<int64_t>(seconds * std::pow(10.0, precision));
+  }
+  int64_t sec = static_cast<int64_t>(seconds);
+  double frac = seconds - static_cast<double>(sec);
+  double frac_scaled = frac * std::pow(10.0, precision);
+  int64_t ticks = sec;
+  for (size_t i = 0; i < precision; i++) ticks *= 10;
+  ticks += static_cast<int64_t>(frac_scaled);
+  return ticks;
+}
+
 // [[Rcpp::export]]
 DataFrame fetch(XPtr<Result> res, ssize_t n) {
   return res->fetchFrame(n);
@@ -240,14 +253,13 @@ std::shared_ptr<ColumnDate> vecToScalar<ColumnDate, const std::time_t>(SEXP v,
 template<>
 std::shared_ptr<ColumnDateTime64> vecToScalar<ColumnDateTime64, const std::time_t>(SEXP v,
     std::shared_ptr<ColumnUInt8> nullCol) {
-  auto col = std::make_shared<ColumnDateTime64>(3);  // default precision 3 (milliseconds)
+  auto col = std::make_shared<ColumnDateTime64>(3);
   switch(TYPEOF(v)) {
     case REALSXP: {
       if(Rf_inherits(v, "POSIXct")) {
         toColumn<ColumnDateTime64, DatetimeVector, const std::time_t>(v, col, nullCol,
             [](DatetimeVector::stored_type x) {
-              // Convert seconds to milliseconds (precision 3)
-              return static_cast<int64_t>(x * 1000);
+              return posixctToTicks(x, 3);
             });
       } else {
         stop("cannot write non-POSIXct real vector to DateTime64 column");
@@ -255,7 +267,6 @@ std::shared_ptr<ColumnDateTime64> vecToScalar<ColumnDateTime64, const std::time_
       break;
     }
     case NILSXP:
-      // treated as an empty column
       break;
     default:
       stop("cannot write R type "+std::to_string(TYPEOF(v))+
@@ -426,7 +437,7 @@ ColumnRef vecToColumn(TypeRef t, SEXP v, std::shared_ptr<ColumnUInt8> nullCol = 
       if (TYPEOF(v) == REALSXP && Rf_inherits(v, "POSIXct")) {
         toColumn<ColumnDateTime64, DatetimeVector, const std::time_t>(v, col, nullCol,
             [precision](DatetimeVector::stored_type x) {
-              return static_cast<int64_t>(x * std::pow(10.0, precision));
+              return posixctToTicks(x, precision);
             });
       }
       return col;
